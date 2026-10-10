@@ -91,6 +91,23 @@ public class WinHandler {
     private boolean isGyroActive = false;
     private boolean isToggleMode;
 
+    // ---- Gyro -> Mouse mode (new) ----
+    // When true, the gyroscope moves the mouse cursor (looking around in PC games)
+    // instead of moving the right stick of a virtual gamepad.
+    // Preference "gyro_mouse_mode" (default true).
+    private boolean gyroMouseMode = true;
+    // When true, the gyro moves the mouse all the time while "Enable Right-Stick Gyroscope" is checked.
+    // When false, it only moves while the Gyro Activator Button is active.
+    // Preference "gyro_mouse_always" (default true).
+    private boolean gyroMouseAlways = true;
+    // Pixels moved per radian of rotation at 100% sensitivity.
+    private static final float GYRO_MOUSE_PIXELS_PER_RADIAN = 1200f;
+    // Cap for smoothing in mouse mode, to keep the aim responsive.
+    private static final float GYRO_MOUSE_MAX_SMOOTHING = 0.5f;
+    private long lastGyroTimeNs = 0;
+    private float mouseRemainderX = 0;
+    private float mouseRemainderY = 0;
+
     public void setGyroSensitivityX(float sensitivity) {
         this.gyroSensitivityX = sensitivity;
     }
@@ -120,10 +137,59 @@ public class WinHandler {
     }
 
 
+    // Gyro -> mouse: converts the angular velocity (rad/s) into relative mouse movement.
+    private void updateGyroMouse(float rawGyroX, float rawGyroY) {
+        long now = System.nanoTime();
+        float dt = lastGyroTimeNs == 0 ? 0.02f : (now - lastGyroTimeNs) / 1.0e9f;
+        lastGyroTimeNs = now;
+        if (dt <= 0f || dt > 0.1f) dt = 0.02f;
+
+        // Not active: reset the state so nothing jumps when it becomes active again
+        if (!(gyroMouseAlways || isGyroActive)) {
+            smoothGyroX = 0;
+            smoothGyroY = 0;
+            mouseRemainderX = 0;
+            mouseRemainderY = 0;
+            return;
+        }
+
+        // Apply deadzone
+        if (Math.abs(rawGyroX) < gyroDeadzone) rawGyroX = 0;
+        if (Math.abs(rawGyroY) < gyroDeadzone) rawGyroY = 0;
+
+        // Apply inversion
+        if (invertGyroX) rawGyroX = -rawGyroX;
+        if (invertGyroY) rawGyroY = -rawGyroY;
+
+        // Apply smoothing (capped so the mouse stays responsive)
+        float smoothing = Math.min(smoothingFactor, GYRO_MOUSE_MAX_SMOOTHING);
+        smoothGyroX = smoothGyroX * smoothing + rawGyroX * (1 - smoothing);
+        smoothGyroY = smoothGyroY * smoothing + rawGyroY * (1 - smoothing);
+
+        // Convert to pixels and keep the fractional part for the next sample
+        mouseRemainderX += smoothGyroX * gyroSensitivityX * GYRO_MOUSE_PIXELS_PER_RADIAN * dt;
+        mouseRemainderY += smoothGyroY * gyroSensitivityY * GYRO_MOUSE_PIXELS_PER_RADIAN * dt;
+
+        int dx = (int) mouseRemainderX;
+        int dy = (int) mouseRemainderY;
+
+        if (dx != 0 || dy != 0) {
+            mouseRemainderX -= dx;
+            mouseRemainderY -= dy;
+            mouseEvent(MouseEventFlags.MOVE, dx, dy, 0);
+        }
+    }
+
     public void updateGyroData(float rawGyroX, float rawGyroY) {
         // Check if gyro is enabled before processing the data
         if (!preferences.getBoolean("gyro_enabled", false)) {
             return; // Exit if the gyro is disabled
+        }
+
+        // Mouse mode: the gyroscope moves the mouse cursor
+        if (gyroMouseMode) {
+            updateGyroMouse(rawGyroX, rawGyroY);
+            return;
         }
 
         boolean shouldProcessGyro = true;
@@ -411,6 +477,10 @@ public class WinHandler {
                 setGyroDeadzone(preferences.getFloat("gyro_deadzone", 0.05f));
 
                 processGyroWithLeftTrigger = preferences.getBoolean("process_gyro_with_left_trigger", false);
+
+                // Gyro -> mouse mode settings
+                gyroMouseMode = preferences.getBoolean("gyro_mouse_mode", true);
+                gyroMouseAlways = preferences.getBoolean("gyro_mouse_always", true);
 
                 synchronized (actions) {
                     actions.notify();
