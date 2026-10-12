@@ -100,23 +100,26 @@ public class WinHandler {
     // When false, it only moves while the Gyro Activator Button is active.
     // Preference "gyro_mouse_always" (default true).
     private boolean gyroMouseAlways = true;
-    // Pixels moved per radian of rotation at 100% sensitivity.
-    private static final float GYRO_MOUSE_PIXELS_PER_RADIAN = 1200f;
-    // Cap for smoothing in mouse mode, to keep the aim responsive.
-    private static final float GYRO_MOUSE_MAX_SMOOTHING = 0.5f;
+    // Same feel as the MT-modified Winlator 11.2: sensitivity 10 px per degree = 573 px per radian.
+    // In mouse mode these fixed values are used (the sensitivity/smoothing/deadzone sliders are ignored).
+    private static final float GYRO_MOUSE_PIXELS_PER_RADIAN = 573f;
+    // Smoothing weight for slow movement (0.6 as in 11.2).
+    private static final float GYRO_MOUSE_SMOOTHING = 0.6f;
+    // Deadzone on the total speed: 0.15 deg/s = 0.0026 rad/s (as in 11.2).
+    private static final float GYRO_MOUSE_DEADZONE = 0.0026f;
 
     // ---- Precision tuning (rad/s) ----
     // Below this speed the phone is considered "still" and the sensor bias is learned.
-    private static final float GYRO_STILL_THRESHOLD = 0.02f;
+    private static final float GYRO_STILL_THRESHOLD = 0.03f;
     // Seconds the phone must stay still before the bias starts being learned.
     private static final float GYRO_STILL_TIME = 0.5f;
     // How fast the bias is learned (0..1 per sample).
     private static final float GYRO_BIAS_RATE = 0.02f;
     // Smoothing fades out completely above this speed (fast flicks stay instant).
-    private static final float GYRO_SMOOTH_BELOW = 0.5f;
+    private static final float GYRO_SMOOTH_BELOW = 0.5236f; // 30 deg/s
     // Acceleration curve: gain 1.0 below LOW, up to 1 + ACCEL_GAIN above HIGH.
-    private static final float GYRO_ACCEL_LOW = 0.35f;
-    private static final float GYRO_ACCEL_HIGH = 2.6f;
+    private static final float GYRO_ACCEL_LOW = 0.349f; // 20 deg/s
+    private static final float GYRO_ACCEL_HIGH = 2.618f; // 150 deg/s
     private static final float GYRO_ACCEL_GAIN = 0.5f;
 
     private long lastGyroTimeNs = 0;
@@ -190,7 +193,7 @@ public class WinHandler {
 
         // 2) Deadzone on the total magnitude (not per axis, so diagonal motion is not distorted)
         float mag = (float) Math.hypot(rawGyroX, rawGyroY);
-        if (mag < gyroDeadzone) {
+        if (mag < GYRO_MOUSE_DEADZONE) {
             rawGyroX = 0;
             rawGyroY = 0;
             mag = 0;
@@ -201,7 +204,7 @@ public class WinHandler {
         if (invertGyroY) rawGyroY = -rawGyroY;
 
         // 3) Adaptive smoothing: strong for slow, fine aiming; fades out for fast movement
-        float baseSmoothing = Math.min(smoothingFactor, GYRO_MOUSE_MAX_SMOOTHING);
+        float baseSmoothing = GYRO_MOUSE_SMOOTHING;
         float speedFactor = Math.min(1f, mag / GYRO_SMOOTH_BELOW);
         float smoothing = baseSmoothing * (1f - speedFactor);
         smoothGyroX = smoothGyroX * smoothing + rawGyroX * (1 - smoothing);
@@ -213,8 +216,8 @@ public class WinHandler {
         float gain = 1f + GYRO_ACCEL_GAIN * t;
 
         // Convert to pixels and keep the fractional part for the next sample
-        mouseRemainderX += smoothGyroX * gyroSensitivityX * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
-        mouseRemainderY += smoothGyroY * gyroSensitivityY * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
+        mouseRemainderX += smoothGyroX * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
+        mouseRemainderY += smoothGyroY * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
 
         int dx = (int) mouseRemainderX;
         int dy = (int) mouseRemainderY;
