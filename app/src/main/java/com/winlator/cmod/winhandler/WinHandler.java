@@ -91,7 +91,7 @@ public class WinHandler {
     private boolean isGyroActive = false;
     private boolean isToggleMode;
 
-    // ---- Gyro -> Mouse mode (new) ----
+    // ---- Gyro -> Mouse mode ----
     // When true, the gyroscope moves the mouse cursor (looking around in PC games)
     // instead of moving the right stick of a virtual gamepad.
     // Preference "gyro_mouse_mode" (default true).
@@ -104,9 +104,27 @@ public class WinHandler {
     private static final float GYRO_MOUSE_PIXELS_PER_RADIAN = 1200f;
     // Cap for smoothing in mouse mode, to keep the aim responsive.
     private static final float GYRO_MOUSE_MAX_SMOOTHING = 0.5f;
+
+    // ---- Precision tuning (rad/s) ----
+    // Below this speed the phone is considered "still" and the sensor bias is learned.
+    private static final float GYRO_STILL_THRESHOLD = 0.02f;
+    // Seconds the phone must stay still before the bias starts being learned.
+    private static final float GYRO_STILL_TIME = 0.5f;
+    // How fast the bias is learned (0..1 per sample).
+    private static final float GYRO_BIAS_RATE = 0.02f;
+    // Smoothing fades out completely above this speed (fast flicks stay instant).
+    private static final float GYRO_SMOOTH_BELOW = 0.5f;
+    // Acceleration curve: gain 1.0 below LOW, up to 1 + ACCEL_GAIN above HIGH.
+    private static final float GYRO_ACCEL_LOW = 0.35f;
+    private static final float GYRO_ACCEL_HIGH = 2.6f;
+    private static final float GYRO_ACCEL_GAIN = 0.5f;
+
     private long lastGyroTimeNs = 0;
     private float mouseRemainderX = 0;
     private float mouseRemainderY = 0;
+    private float gyroBiasX = 0;
+    private float gyroBiasY = 0;
+    private float gyroStillTime = 0;
 
     public void setGyroSensitivityX(float sensitivity) {
         this.gyroSensitivityX = sensitivity;
@@ -150,25 +168,53 @@ public class WinHandler {
             smoothGyroY = 0;
             mouseRemainderX = 0;
             mouseRemainderY = 0;
+            gyroStillTime = 0;
             return;
         }
 
-        // Apply deadzone
-        if (Math.abs(rawGyroX) < gyroDeadzone) rawGyroX = 0;
-        if (Math.abs(rawGyroY) < gyroDeadzone) rawGyroY = 0;
+        // 1) Auto-calibration: when the phone is still, slowly learn the sensor bias
+        float biasedX = rawGyroX - gyroBiasX;
+        float biasedY = rawGyroY - gyroBiasY;
+        float rawMag = (float) Math.hypot(biasedX, biasedY);
+        if (rawMag < GYRO_STILL_THRESHOLD) {
+            gyroStillTime += dt;
+            if (gyroStillTime > GYRO_STILL_TIME) {
+                gyroBiasX += biasedX * GYRO_BIAS_RATE;
+                gyroBiasY += biasedY * GYRO_BIAS_RATE;
+            }
+        } else {
+            gyroStillTime = 0;
+        }
+        rawGyroX = biasedX;
+        rawGyroY = biasedY;
+
+        // 2) Deadzone on the total magnitude (not per axis, so diagonal motion is not distorted)
+        float mag = (float) Math.hypot(rawGyroX, rawGyroY);
+        if (mag < gyroDeadzone) {
+            rawGyroX = 0;
+            rawGyroY = 0;
+            mag = 0;
+        }
 
         // Apply inversion
         if (invertGyroX) rawGyroX = -rawGyroX;
         if (invertGyroY) rawGyroY = -rawGyroY;
 
-        // Apply smoothing (capped so the mouse stays responsive)
-        float smoothing = Math.min(smoothingFactor, GYRO_MOUSE_MAX_SMOOTHING);
+        // 3) Adaptive smoothing: strong for slow, fine aiming; fades out for fast movement
+        float baseSmoothing = Math.min(smoothingFactor, GYRO_MOUSE_MAX_SMOOTHING);
+        float speedFactor = Math.min(1f, mag / GYRO_SMOOTH_BELOW);
+        float smoothing = baseSmoothing * (1f - speedFactor);
         smoothGyroX = smoothGyroX * smoothing + rawGyroX * (1 - smoothing);
         smoothGyroY = smoothGyroY * smoothing + rawGyroY * (1 - smoothing);
 
+        // 4) Acceleration curve: slow = precise, fast = quicker turns
+        float smoothMag = (float) Math.hypot(smoothGyroX, smoothGyroY);
+        float t = Mathf.clamp((smoothMag - GYRO_ACCEL_LOW) / (GYRO_ACCEL_HIGH - GYRO_ACCEL_LOW), 0f, 1f);
+        float gain = 1f + GYRO_ACCEL_GAIN * t;
+
         // Convert to pixels and keep the fractional part for the next sample
-        mouseRemainderX += smoothGyroX * gyroSensitivityX * GYRO_MOUSE_PIXELS_PER_RADIAN * dt;
-        mouseRemainderY += smoothGyroY * gyroSensitivityY * GYRO_MOUSE_PIXELS_PER_RADIAN * dt;
+        mouseRemainderX += smoothGyroX * gyroSensitivityX * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
+        mouseRemainderY += smoothGyroY * gyroSensitivityY * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
 
         int dx = (int) mouseRemainderX;
         int dy = (int) mouseRemainderY;
