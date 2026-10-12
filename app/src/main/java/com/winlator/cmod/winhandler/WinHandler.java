@@ -129,6 +129,13 @@ public class WinHandler {
     private float gyroBiasY = 0;
     private float gyroStillTime = 0;
 
+    // The gyro is paused while a finger is on the touchpad (the phone tilts while dragging
+    // and the gyro would pull the cursor the opposite way).
+    private volatile boolean gyroPausedByTouch = false;
+    private volatile long gyroResumeAtNs = 0;
+    // Short delay after lifting the finger before the gyro resumes (nanoseconds)
+    private static final long GYRO_RESUME_DELAY_NS = 150_000_000L;
+
     public void setGyroSensitivityX(float sensitivity) {
         this.gyroSensitivityX = sensitivity;
     }
@@ -153,6 +160,12 @@ public class WinHandler {
         this.gyroDeadzone = deadzone;
     }
 
+    // Called by TouchpadView: true when a finger touches the screen, false when it is lifted
+    public void setGyroPausedByTouch(boolean paused) {
+        gyroPausedByTouch = paused;
+        if (!paused) gyroResumeAtNs = System.nanoTime() + GYRO_RESUME_DELAY_NS;
+    }
+
     private boolean isLeftTriggerPressed() {
         return currentController != null && currentController.state.triggerL > 0.5f; // Assuming 0.5f is the threshold for pressed
     }
@@ -164,6 +177,16 @@ public class WinHandler {
         float dt = lastGyroTimeNs == 0 ? 0.02f : (now - lastGyroTimeNs) / 1.0e9f;
         lastGyroTimeNs = now;
         if (dt <= 0f || dt > 0.1f) dt = 0.02f;
+
+        // Finger on the screen (or just lifted): ignore the gyro so it does not fight the drag
+        if (gyroPausedByTouch || now < gyroResumeAtNs) {
+            smoothGyroX = 0;
+            smoothGyroY = 0;
+            mouseRemainderX = 0;
+            mouseRemainderY = 0;
+            gyroStillTime = 0;
+            return;
+        }
 
         // Not active: reset the state so nothing jumps when it becomes active again
         if (!(gyroMouseAlways || isGyroActive)) {
