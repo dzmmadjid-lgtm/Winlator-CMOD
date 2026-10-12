@@ -164,12 +164,26 @@ public class TouchpadView extends View {
 //        this.isTouchscreenMode = isTouchscreenMode;
 //    }
 
+    // Pause the gyroscope while a finger is on the screen, so it does not fight the finger drag
+    private void setGyroPausedByTouch(boolean paused) {
+        WinHandler winHandler = xServer.getWinHandler();
+        if (winHandler != null) winHandler.setGyroPausedByTouch(paused);
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         boolean isTouchscreenMode = preferences.getBoolean("touchscreen_toggle", false);
 
         // Reset the timeout timer to keep controls visible
         resetTouchscreenTimeout();  // <-- Ensure the controls stay visible
+
+        // Gyro: paused while a finger is down, resumes (after a short delay) when it is lifted
+        int touchAction = event.getActionMasked();
+        if (touchAction == MotionEvent.ACTION_DOWN || touchAction == MotionEvent.ACTION_POINTER_DOWN) {
+            setGyroPausedByTouch(true);
+        } else if (touchAction == MotionEvent.ACTION_UP || touchAction == MotionEvent.ACTION_CANCEL) {
+            setGyroPausedByTouch(false);
+        }
 
         // Continue handling touch events as usual
         int toolType = event.getToolType(0);
