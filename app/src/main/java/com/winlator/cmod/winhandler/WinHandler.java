@@ -161,10 +161,10 @@ public class WinHandler {
     }
 
     // Called by TouchpadView: true when a finger touches the screen, false when it is lifted
+    
     public void setGyroPausedByTouch(boolean paused) {
-        gyroPausedByTouch = paused;
-        if (!paused) gyroResumeAtNs = System.nanoTime() + GYRO_RESUME_DELAY_NS;
-    }
+    gyroPausedByTouch = false;
+}
 
     private boolean isLeftTriggerPressed() {
         return currentController != null && currentController.state.triggerL > 0.5f; // Assuming 0.5f is the threshold for pressed
