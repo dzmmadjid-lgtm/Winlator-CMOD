@@ -178,16 +178,6 @@ public class WinHandler {
         lastGyroTimeNs = now;
         if (dt <= 0f || dt > 0.1f) dt = 0.02f;
 
-        // Finger on the screen (or just lifted): ignore the gyro so it does not fight the drag
-        if (gyroPausedByTouch || now < gyroResumeAtNs) {
-            smoothGyroX = 0;
-            smoothGyroY = 0;
-            mouseRemainderX = 0;
-            mouseRemainderY = 0;
-            gyroStillTime = 0;
-            return;
-        }
-
         // Not active: reset the state so nothing jumps when it becomes active again
         if (!(gyroMouseAlways || isGyroActive)) {
             smoothGyroX = 0;
