@@ -177,7 +177,7 @@ public class WinHandler {
         float dt = lastGyroTimeNs == 0 ? 0.02f : (now - lastGyroTimeNs) / 1.0e9f;
         lastGyroTimeNs = now;
         if (dt <= 0f || dt > 0.1f) dt = 0.02f;
-
+        float touchScale = (gyroPausedByTouch || now < gyroResumeAtNs) ? 0.35f : 1f;
         // Not active: reset the state so nothing jumps when it becomes active again
         if (!(gyroMouseAlways || isGyroActive)) {
             smoothGyroX = 0;
@@ -229,9 +229,8 @@ public class WinHandler {
         float gain = 1f + GYRO_ACCEL_GAIN * t;
 
         // Convert to pixels and keep the fractional part for the next sample
-        mouseRemainderX += smoothGyroX * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
-        mouseRemainderY += smoothGyroY * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt;
-
+        mouseRemainderX += smoothGyroX * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt * touchScale;
+        mouseRemainderY += smoothGyroY * GYRO_MOUSE_PIXELS_PER_RADIAN * gain * dt * touchScale;
         int dx = (int) mouseRemainderX;
         int dy = (int) mouseRemainderY;
 
